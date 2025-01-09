@@ -18,3 +18,8 @@ jobs:
           native-image --version
       - name: Package with native flag
         run: mvn -Pnative package
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: kinesis_stream_tee
+          path: kinesis_stream_tee*
