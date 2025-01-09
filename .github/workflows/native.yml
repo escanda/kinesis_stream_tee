@@ -21,12 +21,18 @@ jobs:
           java-version: '21'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sdkman/sdkman-action@v1
+        id: sdkman
+        with:
+          candidate: quarkus
+          version: "3.8.6"
       - name: Print Java Environment
         run: |
           echo "GRAALVM_HOME: $GRAALVM_HOME"
           echo "JAVA_HOME: $JAVA_HOME"
           java --version
           native-image --version
+          quarkus --version
       - name: Package with native flag
         run: quarkus build --native -Dquarkus.native.native-image-xmx=4G
       - name: Upload binaries to release
