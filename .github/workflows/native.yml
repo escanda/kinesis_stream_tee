@@ -34,6 +34,6 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: kinesis_stream_tee-1.0.0-SNAPSHOT-native-image-source-jar/kinesis_stream_tee-1.0.0-SNAPSHOT-runner
-          asset_name: kinesis_stream_tee
+          asset_name: kinesis_stream_tee-${{ matrix.os }}
           tag: ${{ github.ref }}
           overwrite: true
