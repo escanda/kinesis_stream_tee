@@ -2,7 +2,18 @@ name: GraalVM build
 on: [push, pull_request]
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: 'graalvm compile for macos, windows and ubuntu'
+    strategy:
+      matrix:
+        os: [ macos-latest, windows-latest, ubuntu-latest ]
+        include:
+          - os: 'ubuntu-latest'
+            platform: 'linux-amd64'
+          - os: 'macos-latest'
+            platform: 'darwin-arm64'
+          - os: 'windows-latest'
+            platform: 'win-amd64'
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: graalvm/setup-graalvm@v1
@@ -18,8 +29,11 @@ jobs:
           native-image --version
       - name: Package with native flag
         run: mvn -Pnative package
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@v2
         with:
-          name: kinesis_stream_tee
-          path: kinesis_stream_tee*
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: kinesis_stream_tee-1.0.0-SNAPSHOT-native-image-source-jar/kinesis_stream_tee-1.0.0-SNAPSHOT-runner
+          asset_name: kinesis_stream_tee
+          tag: ${{ github.ref }}
+          overwrite: true
