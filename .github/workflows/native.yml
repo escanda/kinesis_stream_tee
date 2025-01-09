@@ -7,16 +7,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: graalvm/setup-graalvm@v1
         with:
-          java-version: '21'      # See 'Options' for more details
-          distribution: 'graalvm' # See 'Supported distributions' for available options
+          java-version: '25'
+          distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Example step
+      - name: Print Java Environment
         run: |
           echo "GRAALVM_HOME: $GRAALVM_HOME"
           echo "JAVA_HOME: $JAVA_HOME"
           java --version
           native-image --version
-      - name: Example step using Maven plugin  # https://graalvm.github.io/native-build-tools/latest/maven-plugin.html
+      - name: Package with native flag
         run: mvn -Pnative package
-      - name: Example step using Gradle plugin # https://graalvm.github.io/native-build-tools/latest/gradle-plugin.html
-        run: gradlew nativeCompile
