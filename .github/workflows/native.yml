@@ -28,12 +28,12 @@ jobs:
           java --version
           native-image --version
       - name: Package with native flag
-        run: mvn package -Dnative
+        run: quarkus build --native -Dquarkus.native.native-image-xmx=4G
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: kinesis_stream_tee-1.0.0-SNAPSHOT-native-image-source-jar/kinesis_stream_tee-1.0.0-SNAPSHOT-runner*
+          file: ./target/kinesis_stream_tee-1.0.0-SNAPSHOT-native-image-source-jar/kinesis_stream_tee-1.0.0-SNAPSHOT-runner*
           asset_name: kinesis_stream_tee-${{ matrix.os }}
           tag: ${{ github.ref }}
           overwrite: true
