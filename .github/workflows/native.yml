@@ -1,15 +1,16 @@
 name: GraalVM build
-on: [push, pull_request]
+on:
+  workflow_dispatch:
+      inputs:
+        candidate:
+          description: 'The name of the candidate to install'
+          required: false
+        version:
+          description: 'The version of the candidate to install'
+          required: false
 jobs:
   build:
     name: 'graalvm compile for macos, windows and ubuntu'
-    inputs:
-      candidate:
-        description: 'The name of the candidate to install'
-        required: false
-      version:
-        description: 'The version of the candidate to install'
-        required: false
     strategy:
       matrix:
         os: [ macos-latest, windows-latest, ubuntu-latest ]
