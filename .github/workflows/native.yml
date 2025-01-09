@@ -21,7 +21,7 @@ jobs:
           java-version: '21'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: sdkman/sdkman-action@v1
+      - uses: sdkman/sdkman-action@v1-preview
         id: sdkman
         with:
           candidate: quarkus
