@@ -1,15 +1,12 @@
 package eu.escandasys.kinesis;
 
 import com.amazonaws.kinesisvideo.parser.ebml.InputStreamParserByteSource;
-import com.amazonaws.kinesisvideo.parser.mkv.MkvElement;
 import com.amazonaws.kinesisvideo.parser.mkv.MkvElementVisitException;
-import com.amazonaws.kinesisvideo.parser.mkv.MkvElementVisitor;
 import com.amazonaws.kinesisvideo.parser.mkv.StreamingMkvReader;
 import com.amazonaws.kinesisvideo.parser.utilities.FragmentMetadataVisitor;
 import com.amazonaws.kinesisvideo.parser.utilities.FrameVisitor;
 import com.amazonaws.kinesisvideo.parser.utilities.H264FrameRenderer;
 import jakarta.inject.Inject;
-import org.apache.commons.io.output.TeeOutputStream;
 import org.jboss.logging.Logger;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -29,7 +26,6 @@ import software.amazon.awssdk.services.kinesisvideomedia.model.StartSelector;
 import software.amazon.awssdk.services.kinesisvideomedia.model.StartSelectorType;
 
 import java.awt.image.BufferedImage;
-import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
