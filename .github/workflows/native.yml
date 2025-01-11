@@ -29,7 +29,6 @@ jobs:
           echo "JAVA_HOME: $JAVA_HOME"
           
           java --version
-          native-image --version
           quarkus --version
       - name: Package with native flag
         run: |
