@@ -1,6 +1,15 @@
 package eu.escandasys.kinesis;
 
+import com.amazonaws.kinesisvideo.parser.ebml.InputStreamParserByteSource;
+import com.amazonaws.kinesisvideo.parser.mkv.MkvElement;
+import com.amazonaws.kinesisvideo.parser.mkv.MkvElementVisitException;
+import com.amazonaws.kinesisvideo.parser.mkv.MkvElementVisitor;
+import com.amazonaws.kinesisvideo.parser.mkv.StreamingMkvReader;
+import com.amazonaws.kinesisvideo.parser.utilities.FragmentMetadataVisitor;
+import com.amazonaws.kinesisvideo.parser.utilities.FrameVisitor;
+import com.amazonaws.kinesisvideo.parser.utilities.H264FrameRenderer;
 import jakarta.inject.Inject;
+import org.apache.commons.io.output.TeeOutputStream;
 import org.jboss.logging.Logger;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -19,12 +28,14 @@ import software.amazon.awssdk.services.kinesisvideomedia.model.GetMediaResponse;
 import software.amazon.awssdk.services.kinesisvideomedia.model.StartSelector;
 import software.amazon.awssdk.services.kinesisvideomedia.model.StartSelectorType;
 
+import java.awt.image.BufferedImage;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 @Command
@@ -85,7 +96,6 @@ public class StreamCommand implements Runnable {
                     log.info("Found stream summary for %s".formatted(streamSummary.streamName()));
                     if (streamSummary.streamName().equalsIgnoreCase(streamNameStr)) {
                         streamArnStr = streamSummary.streamARN();
-                        break;
                     }
                     if (streamSummary.streamARN().equalsIgnoreCase(streamArnStr)) {
                         streamNameStr = streamSummary.streamName();
@@ -112,21 +122,26 @@ public class StreamCommand implements Runnable {
                             .endpointProvider(KinesisVideoMediaEndpointProvider.defaultProvider())
                             .httpClient(httpClient)
                             .build();
-                         final ResponseInputStream<GetMediaResponse> mediaResponseResponseInputStream = kinesisVideoMediaClient.getMedia(GetMediaRequest.builder()
+                         final ResponseInputStream<GetMediaResponse> is = kinesisVideoMediaClient.getMedia(GetMediaRequest.builder()
                                  .streamARN(streamArnStr)
                                  .startSelector(startSelector)
-                                 .build());
-                         final BufferedOutputStream bos = new BufferedOutputStream(System.out)) {
+                                 .build())) {
+                        StreamingMkvReader mkvReader = StreamingMkvReader.createDefault(new InputStreamParserByteSource(is));
                         final Instant start = timestampSupplier.get();
                         Instant now;
                         do {
                             now = timestampSupplier.get();
-                            int b = mediaResponseResponseInputStream.read();
-                            if (b == -1) {
-                                break;
-                            }
-                            bos.write(b);
-                            bos.flush();
+
+                            mkvReader.nextIfAvailable().ifPresent(mkvElement -> {
+                                Optional<FragmentMetadataVisitor.MkvTagProcessor> tagProcessor = Optional.of(new FragmentMetadataVisitor.BasicMkvTagProcessor());
+                                var frameProcessor = H264FrameRenderer.create(this::onFrame);
+                                var visitor = FrameVisitor.create(frameProcessor, tagProcessor);
+                                try {
+                                    mkvElement.accept(visitor);
+                                } catch (MkvElementVisitException e) {
+                                    log.warn("Cannot visit element", e);
+                                }
+                            });
                         } while ((now.toEpochMilli() - start.toEpochMilli()) < duration.toMillis());
                     } catch (IOException e) {
                         log.error("Cannot read media with stream name %s and ARN %s".formatted(streamNameStr, streamArnStr), e);
@@ -134,5 +149,9 @@ public class StreamCommand implements Runnable {
                 }
             }
         }
+    }
+
+    public void onFrame(BufferedImage bufferedImage) {
+        System.out.println("FRAME!!");
     }
 }

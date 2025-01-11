@@ -12,37 +12,34 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '23'
-          distribution: 'graalvm'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run script file
         run: |
           export SDKMAN_DIR="$HOME/.sdkman" && curl -s "https://get.sdkman.io?rcupdate=false" | bash
-          candidate="quarkus"
-          version="3.8.6"
           source $HOME/.sdkman/bin/sdkman-init.sh
-          sdk install $candidate $version
+
+          sdk install java "23.0.1-amzn"
+          sdk install quarkus "3.8.6"
         shell:
             bash
       - name: Print Java Environment
         run: |
+          source $HOME/.sdkman/bin/sdkman-init.sh
+          
           echo "GRAALVM_HOME: $GRAALVM_HOME"
           echo "JAVA_HOME: $JAVA_HOME"
-          source $HOME/.sdkman/bin/sdkman-init.sh
+          
           java --version
           native-image --version
           quarkus --version
       - name: Package with native flag
         run: |
           source $HOME/.sdkman/bin/sdkman-init.sh
-          quarkus build --native -Dquarkus.native.native-image-xmx=6G
+          ./mvnw package -Pnative -Dquarkus.native.native-image-xmx=6G
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: ${{ github.workspace }}/target/kinesis_stream_tee-1.0.0-SNAPSHOT-runner
-          asset_name: kinesis_stream_tee-${{ matrix.os }}
+          asset_name: kinesis_stream_tee-${{ matrix.platform }}
           tag: ${{ github.ref }}
           overwrite: true
