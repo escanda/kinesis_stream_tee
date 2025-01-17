@@ -2,6 +2,7 @@ package eu.escandasys.kinesis;
 
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.function.Supplier;
@@ -21,7 +22,7 @@ public class StreamingEngineTest {
     Logger log;
 
     @Test
-    public void testBasicInvocation() {
+    public void testBasicInvocation() throws IOException {
         final Supplier<Instant> timestampSupplier = Instant::now;
         int framesPerSecond = Integer.parseInt("2");
         int timeBetweenFrames = (int) (1000.0d / framesPerSecond);
@@ -30,21 +31,23 @@ public class StreamingEngineTest {
         log.info("Capturing since %ss ago".formatted(duration.toSeconds()));
 
         final StartSelector startSelector = StartSelector.builder()
-            .startSelectorType(StartSelectorType.NOW)
+            .startSelectorType(StartSelectorType.PRODUCER_TIMESTAMP)
+            .startTimestamp(Instant.ofEpochMilli(0))
             .build();
-        var httpClient = ApacheHttpClient.create();
 
         String streamNameStr = "esys-casa-hall";
         String streamArnStr = null;
 
-        try (var engine = new StreamingEngine(httpClient, timestampSupplier)) {
+        try (var httpClient = ApacheHttpClient.create()) {
+            var repository = new DefaultKinesisRepository(httpClient, timestampSupplier);
+            var engine = new StreamingEngine(repository, timestampSupplier);
             var streamOpt = engine.findStreamInfo(streamNameStr, streamArnStr);
             var stream = streamOpt.get();
             log.info("Found stream %s by ARN %s".formatted(stream.streamName(), stream.streamARN()));
             var baos = new ByteArrayOutputStream();
             engine.pipe(duration, stream, startSelector, baos);
             var arr = baos.toByteArray();
-            assertNotEquals(0, arr.length);
+            assertNotEquals(arr.length, 0);
         }
     }
 }

@@ -1,41 +1,17 @@
 package eu.escandasys.kinesis;
 
-import com.amazonaws.kinesisvideo.parser.ebml.InputStreamParserByteSource;
-import com.amazonaws.kinesisvideo.parser.mkv.MkvElementVisitException;
-import com.amazonaws.kinesisvideo.parser.mkv.StreamingMkvReader;
-import com.amazonaws.kinesisvideo.parser.utilities.FragmentMetadataVisitor;
-import com.amazonaws.kinesisvideo.parser.utilities.FrameVisitor;
-import com.amazonaws.kinesisvideo.parser.utilities.H264FrameRenderer;
-
 import jakarta.enterprise.context.Dependent;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-import software.amazon.awssdk.core.ResponseInputStream;
-import software.amazon.awssdk.http.SdkHttpClient;
 import software.amazon.awssdk.http.apache.ApacheHttpClient;
-import software.amazon.awssdk.identity.spi.IdentityProviders;
-import software.amazon.awssdk.services.kinesis.KinesisClient;
-import software.amazon.awssdk.services.kinesis.model.ListStreamsResponse;
-import software.amazon.awssdk.services.kinesis.model.StreamSummary;
-import software.amazon.awssdk.services.kinesisvideo.KinesisVideoClient;
-import software.amazon.awssdk.services.kinesisvideo.model.*;
-import software.amazon.awssdk.services.kinesisvideomedia.KinesisVideoMediaClient;
-import software.amazon.awssdk.services.kinesisvideomedia.endpoints.KinesisVideoMediaEndpointProvider;
-import software.amazon.awssdk.services.kinesisvideomedia.model.GetMediaRequest;
-import software.amazon.awssdk.services.kinesisvideomedia.model.GetMediaResponse;
 import software.amazon.awssdk.services.kinesisvideomedia.model.StartSelector;
 import software.amazon.awssdk.services.kinesisvideomedia.model.StartSelectorType;
 
-import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Objects;
-import java.util.Optional;
 import java.util.function.Supplier;
 
 @Command
@@ -72,6 +48,10 @@ public class StreamCommand implements Runnable {
             startSelector = StartSelector.builder()
                     .startSelectorType(StartSelectorType.NOW)
                     .build();
+        } else if (startWhenceStr.equalsIgnoreCase("earliest")) {
+            startSelector = StartSelector.builder()
+                .startSelectorType(StartSelectorType.EARLIEST)
+                .build();
         } else {
             Instant now = timestampSupplier.get();
             Instant startTime = now.minus(duration);
@@ -81,8 +61,9 @@ public class StreamCommand implements Runnable {
                     .startSelectorType(StartSelectorType.PRODUCER_TIMESTAMP)
                     .build();
         }
-        var httpClient = ApacheHttpClient.create();
-        try (var engine = new StreamingEngine(httpClient, timestampSupplier)) {
+        try (var httpClient = ApacheHttpClient.create()) {
+            var repository = new DefaultKinesisRepository(httpClient, timestampSupplier);
+            var engine = new StreamingEngine(repository, timestampSupplier);
             var streamOpt = engine.findStreamInfo(streamNameStr, streamArnStr);
             if (streamOpt.isEmpty()) {
                 log.warn("No stream found for stream name %s".formatted(streamNameStr));
@@ -91,6 +72,8 @@ public class StreamCommand implements Runnable {
                 log.info("Found stream %s by ARN %s".formatted(stream.streamName(), stream.streamARN()));
                 engine.pipe(duration, stream, startSelector, System.out);
             }
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 }

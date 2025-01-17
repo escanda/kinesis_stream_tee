@@ -4,73 +4,43 @@ import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferByte;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
-import java.util.stream.IntStream;
 
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.jboss.logging.Logger;
 
-import com.amazonaws.kinesisvideo.parser.ebml.InputStreamParserByteSource;
 import com.amazonaws.kinesisvideo.parser.mkv.MkvElementVisitException;
-import com.amazonaws.kinesisvideo.parser.mkv.StreamingMkvReader;
 import com.amazonaws.kinesisvideo.parser.utilities.FragmentMetadataVisitor;
 import com.amazonaws.kinesisvideo.parser.utilities.FrameVisitor;
 import com.amazonaws.kinesisvideo.parser.utilities.H264FrameRenderer;
 
-import io.netty.buffer.ByteBuf;
-import software.amazon.awssdk.core.ResponseInputStream;
-import software.amazon.awssdk.http.SdkHttpClient;
-import software.amazon.awssdk.services.kinesis.KinesisClient;
-import software.amazon.awssdk.services.kinesisvideo.KinesisVideoClient;
-import software.amazon.awssdk.services.kinesisvideo.model.APIName;
-import software.amazon.awssdk.services.kinesisvideo.model.GetDataEndpointRequest;
-import software.amazon.awssdk.services.kinesisvideo.model.GetDataEndpointResponse;
 import software.amazon.awssdk.services.kinesisvideo.model.StreamInfo;
-import software.amazon.awssdk.services.kinesisvideomedia.KinesisVideoMediaClient;
-import software.amazon.awssdk.services.kinesisvideomedia.endpoints.KinesisVideoMediaEndpointProvider;
-import software.amazon.awssdk.services.kinesisvideomedia.model.GetMediaRequest;
-import software.amazon.awssdk.services.kinesisvideomedia.model.GetMediaResponse;
 import software.amazon.awssdk.services.kinesisvideomedia.model.StartSelector;
 
-public class StreamingEngine implements AutoCloseable {
+public class StreamingEngine {
     private static final Logger log = Logger.getLogger(StreamingEngine.class);
-
-    private final SdkHttpClient sdkHttpClient;
-    private final KinesisClient kinesisClient;
-    private final KinesisVideoClient videoClient;
     
+    private final KinesisRepository kinesisRepository;
     private final Supplier<Instant> timestampSupplier;
             
-    public StreamingEngine(SdkHttpClient httpClient, Supplier<Instant> timestampSupplier) {
-        this.sdkHttpClient = httpClient;
-        this.kinesisClient = KinesisClient.builder()
-            .httpClient(httpClient)
-            .build();
-        this.videoClient = KinesisVideoClient.builder()
-            .httpClient(httpClient)
-            .build();
+    public StreamingEngine(KinesisRepository repository, Supplier<Instant> timestampSupplier) {
+        this.kinesisRepository = repository;
         this.timestampSupplier = timestampSupplier;
-    }
-
-    @Override
-    public void close() {
-        kinesisClient.close();
-        videoClient.close();
-        sdkHttpClient.close();
     }
 
     public Optional<StreamInfo> findStreamInfo(String streamNameStr, String streamArnStr) {
         if (Objects.isNull(streamNameStr) || Objects.isNull(streamArnStr)) {
             log.info("Searching through stream list for arn or name...");
-            var streams = videoClient.listStreams();
-            log.info("Found %d stream names".formatted(streams.streamInfoList().size()));
-            for (StreamInfo streamInfo : streams.streamInfoList()) {
+            var streamInfos = kinesisRepository.streamInfos();
+            log.info("Found %d stream names".formatted(streamInfos.size()));
+            for (StreamInfo streamInfo : streamInfos) {
                 log.info("Found stream summary for %s".formatted(streamInfo.streamName()));
                 if (streamInfo.streamName().equalsIgnoreCase(streamNameStr)
                     || streamInfo.streamARN().equalsIgnoreCase(streamArnStr)) {
@@ -81,43 +51,50 @@ public class StreamingEngine implements AutoCloseable {
         return Optional.empty();
     }
 
-    public void pipe(Duration duration, StreamInfo stream, StartSelector startSelector, OutputStream os) {
-        GetDataEndpointResponse response = videoClient.getDataEndpoint(GetDataEndpointRequest.builder()
-                .streamARN(stream.streamARN())
-                .apiName(APIName.GET_MEDIA)
-                .build()
-        );
-        try (final KinesisVideoMediaClient kinesisVideoMediaClient = KinesisVideoMediaClient.builder()
-                .endpointOverride(URI.create(response.dataEndpoint()))
-                .endpointProvider(KinesisVideoMediaEndpointProvider.defaultProvider())
-                .httpClient(sdkHttpClient)
-                .build();
-            final ResponseInputStream<GetMediaResponse> is = kinesisVideoMediaClient.getMedia(GetMediaRequest.builder()
-                .streamARN(stream.streamARN())
-                .startSelector(startSelector)
-                .build())) {
+    public void pipe(Duration duration, StreamInfo stream, StartSelector startSelector, OutputStream os) throws IOException {
+        final long cancelMs = duration.toMillis();
+        try (var it = kinesisRepository.getMedia(startSelector, stream.streamName(), stream.streamARN())) {
             log.info("Reading input for stream with ARN %s".formatted(stream.streamARN()));
-            StreamingMkvReader mkvReader = StreamingMkvReader.createDefault(new InputStreamParserByteSource(is));
-            log.info("Created MKV reader");
-            final Instant start = timestampSupplier.get();
-            Optional<FragmentMetadataVisitor.MkvTagProcessor> tagProcessor = Optional.of(new FragmentMetadataVisitor.BasicMkvTagProcessor());
-            var frameProcessor = H264FrameRenderer.create(t -> this.onFrame(os, t));
+            final var start = timestampSupplier.get();
+            var mkvTagProcessor = new FragmentMetadataVisitor.BasicMkvTagProcessor();
+            Optional<FragmentMetadataVisitor.MkvTagProcessor> tagProcessor = Optional.of(mkvTagProcessor);
+            final H264FrameRenderer frameProcessor = H264FrameRenderer.create(t -> this.onFrame(os, t));
             var visitor = FrameVisitor.create(frameProcessor, tagProcessor);
-            while (mkvReader.mightHaveNext()) {
-                var mkvOpt = mkvReader.nextIfAvailable();
-                if (mkvOpt.isPresent()) {
-                    log.debug("Reading next MKV frame");
-                    var mkvElement = mkvOpt.get();
+            log.info("Starting loop over mkv elements");
+            while (it.hasNext()) {
+                var element = measure("Retrieving one MKV element took %lMS", () -> it.next());
+                @SuppressWarnings("unused")
+                var _ignored = measure("Processing one frame took %lMS", () -> {
                     try {
-                        mkvElement.accept(visitor);
+                        element.accept(visitor);
                     } catch (MkvElementVisitException e) {
-                        log.warn("Cannot visit MKV element", e);
+                        ExceptionUtils.rethrow(e);
                     }
+                    return null;
+                });
+                var now = timestampSupplier.get();
+                var timeDelta = start.until(now, ChronoUnit.MILLIS);
+                if (timeDelta >= cancelMs) {
+                    break;
                 }
-            } while ((timestampSupplier.get().toEpochMilli() - start.toEpochMilli()) < duration.toMillis());
-        } catch (IOException e) {
-            log.error("Cannot read media with stream name %s and ARN %s".formatted(stream.streamName(), stream.streamARN()), e);
+            }
         }
+    }
+
+    private <U> U measure(String fmt, Supplier<U> supplier) {
+        var start = timestampSupplier.get();
+        U i = null;
+        try {
+            i = supplier.get();
+            var end = timestampSupplier.get();
+            var ms = start.until(end, ChronoUnit.MILLIS);
+            log.info(fmt.formatted(ms));
+        } catch (Throwable t) {
+            var end = timestampSupplier.get();
+            log.error(fmt.formatted(start.until(end, ChronoUnit.MILLIS)));
+            throw t;
+        }
+        return i;
     }
 
     public void onFrame(OutputStream os, BufferedImage bufferedImage) {
@@ -136,7 +113,7 @@ public class StreamingEngine implements AutoCloseable {
             var buffer = ByteBuffer.wrap(bytes);
             log.info("writing buffer to output of size %d".formatted(bytes.length));
             channel.write(buffer);
-            log.info("Wrote output");
+            log.info("wrote output");
         } catch (IOException e) {
             log.error("Cannot write to output channel", e);
         }
