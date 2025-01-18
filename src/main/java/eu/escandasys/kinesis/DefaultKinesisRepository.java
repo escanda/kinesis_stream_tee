@@ -1,13 +1,10 @@
 package eu.escandasys.kinesis;
 
-import java.io.IOException;
 import java.net.URI;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.function.Supplier;
-
-import org.jboss.logging.Logger;
 
 import com.amazonaws.kinesisvideo.parser.ebml.InputStreamParserByteSource;
 import com.amazonaws.kinesisvideo.parser.mkv.MkvElement;
@@ -26,8 +23,6 @@ import software.amazon.awssdk.services.kinesisvideomedia.model.GetMediaResponse;
 import software.amazon.awssdk.services.kinesisvideomedia.model.StartSelector;
 
 public class DefaultKinesisRepository implements KinesisRepository {
-    private static final Logger log = Logger.getLogger(DefaultKinesisRepository.class);
-    
     private static final int MAX_BUFFER_SIZE = 2048;
     
     private final SdkHttpClient sdkHttpClient;
@@ -56,15 +51,8 @@ public class DefaultKinesisRepository implements KinesisRepository {
             .startSelector(startSelector)
             .build());
         final var isI = new InputStreamParserByteSource(is);
-        final var mkvReader = StreamingMkvReader.createWithMaxContentSize(isI, MAX_BUFFER_SIZE);
-        return new ClosingIterator<>(mkvReader::nextIfAvailable, () -> {
-            try {
-                is.close();
-            } catch (IOException e) {
-                log.error("Error closing response", e);
-            }
-            kinesisVideoMediaClient.close();
-        });
+        final var mkvReader = StreamingMkvReader.createDefault(isI);
+        return ClosingIterator.of(mkvReader::mightHaveNext, mkvReader::nextIfAvailable, is::abort);
     }
 
     public Collection<StreamInfo> streamInfos() {

@@ -51,30 +51,30 @@ public class StreamingEngine {
         return Optional.empty();
     }
 
-    public void pipe(Duration duration, StreamInfo stream, StartSelector startSelector, OutputStream os) throws IOException {
-        final long cancelMs = duration.toMillis();
-        try (var it = kinesisRepository.getMedia(startSelector, stream.streamName(), stream.streamARN())) {
-            log.info("Reading input for stream with ARN %s".formatted(stream.streamARN()));
+    public void pipe(Duration duration, String streamName, String streamArn, StartSelector startSelector, OutputStream os) throws IOException {
+        try (var it = kinesisRepository.getMedia(startSelector, streamName, streamArn)) {
+            log.info("Reading input for stream with ARN %s".formatted(streamArn));
             final var start = timestampSupplier.get();
             var mkvTagProcessor = new FragmentMetadataVisitor.BasicMkvTagProcessor();
             Optional<FragmentMetadataVisitor.MkvTagProcessor> tagProcessor = Optional.of(mkvTagProcessor);
-            final H264FrameRenderer frameProcessor = H264FrameRenderer.create(t -> this.onFrame(os, t));
+            final H264FrameRenderer frameProcessor = H264FrameRenderer.create(t -> onFrame(os, t));
             var visitor = FrameVisitor.create(frameProcessor, tagProcessor);
-            log.info("Starting loop over mkv elements");
             while (it.hasNext()) {
-                var element = measure("Retrieving one MKV element took %lMS", () -> it.next());
+                var element = measure("Retrieving one MKV element took %d ms", it::next);
                 @SuppressWarnings("unused")
-                var _ignored = measure("Processing one frame took %lMS", () -> {
-                    try {
-                        element.accept(visitor);
-                    } catch (MkvElementVisitException e) {
-                        ExceptionUtils.rethrow(e);
-                    }
+                var _ignored = measure("Processing one frame took %d ms", () -> {
+                    element.ifPresent(e -> {
+                        try {
+                            e.accept(visitor);
+                        } catch (MkvElementVisitException ex) {
+                            log.error("Cannot visit element", ex);
+                        }
+                    });
                     return null;
                 });
                 var now = timestampSupplier.get();
-                var timeDelta = start.until(now, ChronoUnit.MILLIS);
-                if (timeDelta >= cancelMs) {
+                if (start.plus(duration).isBefore(now)) {
+                    log.warn("breaking loop");
                     break;
                 }
             }
@@ -83,7 +83,7 @@ public class StreamingEngine {
 
     private <U> U measure(String fmt, Supplier<U> supplier) {
         var start = timestampSupplier.get();
-        U i = null;
+        U i;
         try {
             i = supplier.get();
             var end = timestampSupplier.get();

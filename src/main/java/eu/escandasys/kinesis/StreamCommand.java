@@ -70,10 +70,10 @@ public class StreamCommand implements Runnable {
             } else {
                 var stream = streamOpt.get();
                 log.info("Found stream %s by ARN %s".formatted(stream.streamName(), stream.streamARN()));
-                engine.pipe(duration, stream, startSelector, System.out);
+                engine.pipe(duration, stream.streamName(), stream.streamARN(), startSelector, System.out);
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("Cannot pipe entirely stream", e);
         }
     }
 }

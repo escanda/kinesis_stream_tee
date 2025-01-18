@@ -33,7 +33,7 @@ jobs:
       - name: Package with native flag
         run: |
           source $HOME/.sdkman/bin/sdkman-init.sh
-          ./mvnw package -Pnative -Dquarkus.native.native-image-xmx=6G
+          ./mvnw package -Pnative -Dquarkus.native.native-image-xmx=6G -DskipTest=True
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
         with:
